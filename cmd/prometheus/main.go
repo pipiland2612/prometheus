@@ -1196,6 +1196,15 @@ func main() {
 			func() error {
 				<-reloadReady.C
 
+				var ticker *time.Ticker
+				var tickerCh <-chan time.Time
+
+				if cfg.enableAutoReload {
+					ticker = time.NewTicker(time.Duration(cfg.autoReloadInterval))
+					tickerCh = ticker.C
+					defer ticker.Stop()
+				}
+
 				for {
 					select {
 					case <-hup:
@@ -1206,6 +1215,8 @@ func main() {
 							if err != nil {
 								logger.Error("Failed to generate checksum during configuration reload", "err", err)
 							}
+							// Reset the ticker after successful reload
+							ticker.Reset(time.Duration(cfg.autoReloadInterval))
 						}
 					case rc := <-webHandler.Reload():
 						if err := reloadConfig(cfg.configFile, cfg.tsdb.EnableExemplarStorage, logger, noStepSubqueryInterval, callback, reloaders...); err != nil {
@@ -1218,9 +1229,11 @@ func main() {
 								if err != nil {
 									logger.Error("Failed to generate checksum during configuration reload", "err", err)
 								}
+								// Reset the ticker after successful reload
+								ticker.Reset(time.Duration(cfg.autoReloadInterval))
 							}
 						}
-					case <-time.Tick(time.Duration(cfg.autoReloadInterval)):
+					case <-tickerCh:
 						if !cfg.enableAutoReload {
 							continue
 						}
@@ -1237,6 +1250,8 @@ func main() {
 							logger.Error("Error reloading config", "err", err)
 						} else {
 							checksum = currentChecksum
+							// Reset the ticker after successful reload
+							ticker.Reset(time.Duration(cfg.autoReloadInterval))
 						}
 					case <-cancel:
 						return nil
